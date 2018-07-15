@@ -1,14 +1,25 @@
 language: c
 
-os:
-  - linux
-  - osx
 branches:
   only:
     - master
-compiler:
-  - gcc
-  - clang
+    - /^htick-.*/
+matrix:
+  fast_finish: true
+  include:
+  - os: linux
+    env:
+    - MATRIX_EVAL="CC=gcc" CF=-DBUILD_SHARED_LIBS=OFF ARCH="x86_64"
+  - os: linux
+    env:
+    - MATRIX_EVAL="CC='gcc -m32'" CF="-DBUILD_SHARED_LIBS=OFF -DCMAKE_LIBRARY_PATH=/usr/lib32"
+      PACKAGES="gcc-multilib lib32z1-dev" ARCH="i686"
+  - os: osx
+    env:
+    - MATRIX_EVAL="CC=gcc" CF=-DBUILD_SHARED_LIBS=OFF ARCH="x86_64"
+  - os: osx
+    env:
+    - MATRIX_EVAL="CC='gcc -m32'" CF=-DBUILD_SHARED_LIBS=OFF ARCH="i686"
 before_install:
   - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then sudo apt-get install -y rpm; fi
   - git clone https://github.com/huskyproject/huskylib ~/build/huskyproject/huskylib
@@ -16,40 +27,66 @@ before_install:
   - git clone https://github.com/huskyproject/fidoconf ~/build/huskyproject/fidoconf
   - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then git clone https://github.com/huskyproject/hptzip ~/build/huskyproject/hptzip; fi
   - git clone https://github.com/huskyproject/areafix ~/build/huskyproject/areafix
+  - if [ -n "$PACKAGES" ]; then travis_retry sudo apt-get install --no-install-recommends
+    --no-upgrade -qq $PACKAGES; fi
+  - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then sudo ln -s /usr/include/x86_64-linux-gnu/zconf.h
+    /usr/include; fi
 script:
+  - eval "${MATRIX_EVAL}"
   - cd  ~/build/huskyproject/huskylib
   - mkdir build
   - cd build
-  - cmake ..
+  - cmake .. ${CF}
   - cmake --build .
   - sudo make install
   - cd  ~/build/huskyproject/smapi
   - mkdir build
   - cd build
-  - cmake ..
+  - cmake .. ${CF}
   - cmake --build .
   - sudo make install
   - cd  ~/build/huskyproject/fidoconf
   - mkdir build
   - cd build
-  - cmake ..
+  - cmake .. ${CF}
   - cmake --build .
   - sudo make install
   - cd  ~/build/huskyproject/areafix
   - mkdir build
   - cd build
-  - cmake ..
+  - cmake .. ${CF}
   - cmake --build .
   - sudo make install
   - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then cd  ~/build/huskyproject/hptzip; fi
   - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then mkdir build; fi
   - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then cd build; fi
-  - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then cmake ..; fi
+  - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then cmake .. ${CF}; fi
   - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then cmake --build .; fi
   - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then sudo make install; fi
   - cd $TRAVIS_BUILD_DIR
   - mkdir build
   - cd build
-  - cmake ..
+  - cmake .. ${CF} -DCPACK_DEBIAN_PACKAGE_MAINTAINER=travis-ci
   - cmake --build .
   - cpack
+  - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then cpack -G RPM; fi
+  - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then cpack -G DEB; fi
+  - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then for file in *.rpm; do mv $file
+    $(basename $file .rpm).${ARCH}.rpm; done; fi
+  - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then for file in *.deb; do mv $file
+    $(basename $file .deb).${ARCH}.deb; done; fi
+  - for file in *.tar.gz; do mv $file $(basename $file .tar.gz).${ARCH}.tar.gz;
+    done
+deploy:
+  provider: releases
+  api_key:
+    secure: jDpGrmxOVgzDiNYaLMLsN0PongO6n0hCbKGhbWV5nHh477LLKYN3/IxVcEj0ClMOzwHXS4fkXhT2GgSdBUzBuSfnrnEwN7njbc0e4MB36caKcIrdf9nr1Ik+8ArSfNCjKNV12YORHF73nqrzlZjuT8Uq3hMW+2/Gw6di48R/lqtnramQEDxUilz7/8zEwzTnP/uNDBFYMGpcZxL1T+eeoRn2V5tlM8sGh61/OWJ0K3lfLol3A9YtF0jjVTw7HzuqK7tAO9CcaC+SwxZ9A3T77JAfcB1xb13gMOwzIpfwxXQp52Tc8CtU/wh0OwySYj/raKafLOfqgoajzTvhPj9sq3GiWff1IP2YC797SmWdZwwevYgNEawPM2zdiMDATqRZ6doRhrqgBRnDJq0pG78vBRSaf8Lzpm47ZwgXgJyRqTIoF+XdJZw0emugyGnhuEcQIh8AZnGevgbiPEj8WWJNU56NGoIWJfatRKZnrHgid75rbrt9SiH45nmJUlZuQiydm+SXas6cqibXCb93MUfxDgkuhXohMjJO1zIvUjDVoV6qboXZRyRZZVjooF00uJnjJF4cbqeGY1T3VjxT8td0TtFJdQRYMG1KWpVgymzPxYVlBZrkc+sN8DDiSsws0Rt7pZ3M8So+WNbyNllKkBR7DqzAB9M4MJKd9dx5UaXghHc=
+  file_glob: true
+  skip_cleanup: true
+  file: 
+    - $TRAVIS_BUILD_DIR/build/*.rpm
+    - $TRAVIS_BUILD_DIR/build/*.deb
+    - $TRAVIS_BUILD_DIR/build/*.tar.gz
+  on:
+    tags: true
+    branch: master
